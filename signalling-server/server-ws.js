@@ -37,27 +37,42 @@ server.on('upgrade', (request, socket, head) => {
 	}
 });
 
-// Handling WebSocket connections
-wssGeneral.on('connection', function connection(ws) {
-	console.log('Connected to WebSocket general route');
-	// WebSocket general communication logic here
-	assignUniqueId(ws);
-	notifyClientOfId(ws, wssGeneral);
-	setupMessageAndCloseHandlers(ws, wssGeneral);
-});
+function handleWebSocketConnection(wss) {
+	wss.on('connection', function connection(ws) {
+		console.log(
+			`Connected to ${wss === wssGeneral ? 'WebSocket general' : 'WebRTC signaling'} route`
+		);
+		assignUniqueId(ws);
+		notifyClientOfId(ws, wss);
+		setupMessageAndCloseHandlers(ws, wss);
+	});
+}
 
-// Handling WebRTC Signaling connections
-wssWebRTC.on('connection', function connection(ws) {
-	console.log('Connected to WebRTC signaling route');
-	// WebRTC signaling logic here
-	assignUniqueId(ws);
-	notifyClientOfId(ws, wssWebRTC);
-	setupMessageAndCloseHandlers(ws, wssWebRTC);
-});
+// Handling WebSocket connections for wssGeneral
+handleWebSocketConnection(wssGeneral);
+
+// Handling WebSocket connections for wssWebRTC
+handleWebSocketConnection(wssWebRTC);
 
 function assignUniqueId(ws) {
 	ws.id = uuidv4();
 	console.log(`Assigned ID: ${ws.id} to the connection`);
+}
+
+// Function to convert the first 16 bytes of a buffer into a UUID string
+function bytesToUUID(buffer) {
+	const hexParts = [];
+	for (let i = 0; i < 16; i++) {
+		const hex = buffer[i].toString(16).padStart(2, '0');
+		hexParts.push(hex);
+	}
+	return [
+		hexParts.slice(0, 4).join(''),
+		hexParts.slice(4, 6).join(''),
+		hexParts.slice(6, 8).join(''),
+		hexParts.slice(8, 10).join(''),
+		hexParts.slice(10, 16).join('')
+	].join('-');
 }
 
 function notifyClientOfId(ws, wss) {
@@ -83,26 +98,44 @@ function setupMessageAndCloseHandlers(ws, wss) {
 function processClientMessage(ws, wss, message) {
 	if (wss === wssGeneral) {
 		console.info('Received:', message);
-		broadcastBinaryMessage(wss, message);
+		sendBinaryMessagetoTarget(ws, wss, message);
 	} else if (wss === wssWebRTC) {
 		console.info('Received:', message);
 		const data = JSON.parse(message);
 		handleClientAction(ws, wss, data);
+		console.log(`Disconnected: ${ws.id}`);
 	}
 }
 
-function broadcastBinaryMessage(wss, message) {
-	console.info('Broadcasting binary message');
-	wss.clients.forEach((client) => client.send(message));
+function sendBinaryMessagetoTarget(ws, wss, data) {
+	const uuidBuffer = data.slice(0, 16);
+	const targetId = bytesToUUID(uuidBuffer);
+	const dataBuffer = data.slice(16);
+
+	const targetClient = Array.from(wss.clients).find(
+		(client) => client.id === targetId && client.readyState === WebSocket.OPEN
+	);
+	if (targetClient) {
+		console.log(`Sending message from ${ws.id} to ${targetId}`);
+		targetClient.send(dataBuffer);
+	}
+}
+
+function handleDisconnection(ws, wss) {
+	console.log(`Disconnected: ${ws.id}`);
+	broadcastDisconnection(ws.id, wss);
 }
 
 function handleClientAction(ws, wss, data) {
 	switch (data.type) {
 		case 'getClients':
-			sendClientList(ws);
+			sendClientList(ws, wss);
 			break;
-		case 'all':
-			broadcastAll(data);
+		case 'newConnection':
+			broadcastNewConnection(ws.id);
+			break;
+		case 'disconnect':
+			broadcastDisconnection(ws.id, wss);
 			break;
 		default:
 			sendMessageToOneUser(ws, wss, data);
@@ -110,13 +143,8 @@ function handleClientAction(ws, wss, data) {
 	}
 }
 
-function handleDisconnection(ws, wss) {
-	console.log('User disconnected:', ws.id);
-	//broadcastDisconnection(wss, ws.id);
-}
-
-function sendClientList(ws) {
-	const clients = getClientIds(ws.id);
+function sendClientList(ws, wss) {
+	const clients = getClientIds(wss, ws.id);
 	console.log(`Sending client list to ${ws.id}`);
 	ws.send(JSON.stringify({ type: 'clientList', clients }));
 }
@@ -145,11 +173,6 @@ function broadcastToAll(wss, message) {
 			client.send(JSON.stringify(message));
 		}
 	});
-}
-
-function broadcastAll(wss, data) {
-	const message = JSON.stringify(data);
-	wss.clients.forEach((client) => client.send(message));
 }
 
 function sendMessageToOneUser(senderWs, wss, data) {
