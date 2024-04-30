@@ -39,9 +39,6 @@ server.on('upgrade', (request, socket, head) => {
 
 function handleWebSocketConnection(wss) {
 	wss.on('connection', function connection(ws) {
-		console.log(
-			`Connected to ${wss === wssGeneral ? 'WebSocket general' : 'WebRTC signaling'} route`
-		);
 		assignUniqueId(ws);
 		notifyClientOfId(ws, wss);
 		setupMessageAndCloseHandlers(ws, wss);
@@ -97,13 +94,10 @@ function setupMessageAndCloseHandlers(ws, wss) {
 
 function processClientMessage(ws, wss, message) {
 	if (wss === wssGeneral) {
-		console.info('Received:', message);
 		sendBinaryMessagetoTarget(ws, wss, message);
 	} else if (wss === wssWebRTC) {
-		console.info('Received:', message);
 		const data = JSON.parse(message);
 		handleClientAction(ws, wss, data);
-		console.log(`Disconnected: ${ws.id}`);
 	}
 }
 
@@ -115,8 +109,8 @@ function sendBinaryMessagetoTarget(ws, wss, data) {
 	const targetClient = Array.from(wss.clients).find(
 		(client) => client.id === targetId && client.readyState === WebSocket.OPEN
 	);
+
 	if (targetClient) {
-		console.log(`Sending message from ${ws.id} to ${targetId}`);
 		targetClient.send(dataBuffer);
 	}
 }
@@ -145,7 +139,6 @@ function handleClientAction(ws, wss, data) {
 
 function sendClientList(ws, wss) {
 	const clients = getClientIds(wss, ws.id);
-	console.log(`Sending client list to ${ws.id}`);
 	ws.send(JSON.stringify({ type: 'clientList', clients }));
 }
 
@@ -180,7 +173,6 @@ function sendMessageToOneUser(senderWs, wss, data) {
 		(client) => client.id === data.target && client.readyState === WebSocket.OPEN
 	);
 	if (targetClient) {
-		console.log(`Sending message from ${senderWs.id} to ${data.target}`);
 		targetClient.send(JSON.stringify({ ...data, sender: senderWs.id }));
 	}
 }
