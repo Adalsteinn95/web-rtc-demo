@@ -94,6 +94,9 @@ function setupMessageAndCloseHandlers(ws, wss) {
 
 function processClientMessage(ws, wss, message) {
 	if (wss === wssGeneral) {
+		if (message === 'ping') {
+			ws.send('pong'); // Send a pong response back to the client this is for monitoring the connection
+		}
 		sendBinaryMessagetoTarget(ws, wss, message);
 	} else if (wss === wssWebRTC) {
 		const data = JSON.parse(message);
